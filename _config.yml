@@ -16,7 +16,7 @@ timezone: Asia/Shanghai
 
 title: 一事无成小能手 # the main title
 
-tagline:     你看,是光 # it will display as the sub-title
+tagline: 你看,是光! # it will display as the sub-title
 
 description: >- # used by seo meta and the atom feed
   A minimal, responsive and feature-rich Jekyll theme for technical writing.
