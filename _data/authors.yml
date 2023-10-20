@@ -1,2 +1,4 @@
- <elon>:                   # author名称的唯一id如elon
-   name: 一生无成小能手.于            # author名字
+ elon:                   # author名称的唯一id如elon
+   name: 一事无成小能手.于            # author名字
+   # twitter: <twitter_of_author> # 推特地址
+   # url: <homepage_of_author>    # 作者详情地址，如果在_tabs下编辑了about.md，设置了基础信息, 可填/about
