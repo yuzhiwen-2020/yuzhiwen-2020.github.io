@@ -1,9 +1,9 @@
 ---
-title: 一事无成小能手的第一篇博客文                      
+title: 一事无成小能手第一篇博客文                 
 date: 2023-10-20 18:00:00 +/-0800
-categories: [分类1,分类2]             
-tags: [标签1,标签2,biaoqian]                        
-author: elon      
+categories: [分类1,分类2]         
+tags: [标签1,标签2,biaoqian]                    
+author: elon
 ---
 
 # 我是第一个文章
