@@ -1,21 +1,10 @@
 ---
-title: abcdef
-date: 2023-10-20 18:00:00 +0800
-categories: [TOP_CATEGORIE, SUB_CATEGORIE]
-tags: [TAG,tag，biaoqian,标签]     # TAG names should always be lowercase
-author: elon                    # 文章作者，需要预先在_date/authors.yml中配置
+title: Logging Of Envoy
+date: 2023-10-19 09:00:00 +0800
+categories: [service_mesh]
+tags: [envoy, tracing]
+author: miracle
 mermaid: true
 ---
 
 # Envoy接入EFK
-***
-__本[程序](https://github.com/miracle-1991/envoy-study/tree/main/logging)在安装了docker-compose的机器上执行__
-拓扑图:
-
-
-> 容器说明
-> > front: 接收http请求，向service发起grpc请求
-> > service：接收grpc请求
-> > filebeat: 日志采集、聚合，发送到es进行存储
-> > elasticsearch：数据保存分析检索
-> > kibana: 对es存储的数据进行图形化的界面展示
