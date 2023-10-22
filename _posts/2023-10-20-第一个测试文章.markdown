@@ -1,10 +1,9 @@
 ---
 title: Logging Of Envoy
 date: 2023-10-19 09:00:00 +0800
-categories: [service_mesh]
-tags: [envoy, tracing]
-author: miracle
+categories: [分类1,分类2]
+tags: [标签1, 标签2]
+author: elon
 mermaid: true
 ---
-
-# Envoy接入EFK
+# 哈哈哈
