@@ -11,7 +11,7 @@ mermaid: true
 ***
 __本[程序](https://github.com/miracle-1991/envoy-study/tree/main/logging)在安装了docker-compose的机器上执行__
 拓扑图:
-![logging-test拓扑图](/assets/img/envoy/logging/logging.png)
+
 
 > 容器说明
 > > front: 接收http请求，向service发起grpc请求
