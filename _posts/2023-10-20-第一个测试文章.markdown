@@ -1,8 +1,8 @@
 ---
-title: TITLE
-date: YYYY-MM-DD HH:MM:SS +/-TTTT
+title: 一事无成小能手的第篇博客文
+date: 2023-10-20 18:00:00 +/-0800
 categories: [TOP_CATEGORIE, SUB_CATEGORIE]
-tags: [TAG]     # TAG names should always be lowercase
+tags: [TAG,tag，biaoqian,标签]     # TAG names should always be lowercase
 author: elon                    # 文章作者，需要预先在_date/authors.yml中配置
 ---
 
