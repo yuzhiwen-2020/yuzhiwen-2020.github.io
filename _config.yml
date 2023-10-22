@@ -14,7 +14,7 @@ timezone: Asia/Shanghai
 # jekyll-seo-tag settings › https://github.com/jekyll/jekyll-seo-tag/blob/master/docs/usage.md
 # ↓ --------------------------
 
-title: 一事无成小能手 # the main title
+title: 一事无成小能手.yu # the main title
 
 tagline: 你看,是光! # it will display as the sub-title
 
@@ -35,7 +35,7 @@ social:
   # Change to your full name.
   # It will be displayed as the default author of the posts and the copyright owner in the Footer
   name: 一事无成小能手.yu
-  email: example@domain.com # change to your email address
+  email: yzw117772313@163.com # change to your email address
   links:
     # The first element serves as the copyright owner's link
     - https://twitter.com/username # change to your twitter homepage
