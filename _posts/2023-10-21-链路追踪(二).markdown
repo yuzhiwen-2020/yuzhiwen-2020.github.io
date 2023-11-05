@@ -1,0 +1,687 @@
+# 链路追踪(二)
+本章节将用golang的项目做一次直接搜集traces的实践,服务端采用jaeger sdk完成，将traces推送到
+# golang项目介绍
+
+![图片](/assets/imgs/k8s/traceing/2go项目.png?w=701&h=554)
+## 说明
+- dashboard2ui：
+gin：对前段uiserver提供http接口
+rpc-client：调用dashboard2api的rpc server接口，获取真正的指标、k3s集群数据等
+- dashboard2api：
+cron-job：周期拉metircs存入redis
+shardinfomer：拉redis数据或者通过client-go的接口读gvr数据
+# 实践
+1. 服务采用"go.opentelemetry.io/otel/exporters/jaeger"初始化追踪tracer，同样需要指定jaeger的服务地址（这里采用非agent的方式做例子）
+2. 这里采用sdk的方式进行trace的链路追踪，创建TracerProvider
+3. grpc服务进行链路追踪，使用grpc otel追踪sdk go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc
+![图片](/assets/imgs/k8s/traceing/2实践.png?w=663&h=354)
+## otel provider
+### jeager启动
+首先参考https://www.jaegertracing.io/docs/1.50/getting-started/ 完成jaeger的启动
+通过docker的方式启动（all-in-one）：
+```shell
+docker run -d --rm --name jaeger \
+  -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
+  -e COLLECTOR_OTLP_ENABLED=true \
+  -p 6831:6831/udp \
+  -p 6832:6832/udp \
+  -p 5778:5778 \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -p 14250:14250 \
+  -p 14268:14268 \
+  -p 14269:14269 \
+  -p 9411:9411 \
+  jaegertracing/all-in-one:1.50
+```
+启动后访问：http://localhost:16686/
+![图片](/assets/imgs/k8s/traceing/2jaeger启动.png?w=1875&h=845)
+### provider
+jaeger的地址"http://127.0.0.1:14268/api/traces"；项目中创建otel.go文件，作为provider和export的实现；
+```go
+package otel
+
+import (
+	"context"
+	"fmt"
+
+	//"errors"
+	"time"
+	log "weiyun/common/logging"
+	utils "weiyun/common/utils"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	otel_trace "go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+var tracer otel_trace.Tracer
+
+func SetTracer(name string) {
+	tracer = otel.Tracer(name)
+}
+func GetTracer() otel_trace.Tracer {
+	return tracer
+}
+func GetSpan(ctx context.Context, funName string) (newCtx context.Context, span otel_trace.Span) {
+	return tracer.Start(ctx, funName)
+}
+
+// setupOTelSDK bootstraps the OpenTelemetry pipeline.
+// If it does not return an error, make sure to call shutdown for proper cleanup.
+func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shutdown func(context.Context) error, err error) {
+	var shutdownFuncs []func(context.Context) error
+	// shutdown calls cleanup functions registered via shutdownFuncs.
+	// The errors from the calls are joined.
+	// Each registered cleanup will be invoked once.
+	shutdown = func(ctx context.Context) error {
+		var err error
+		for _, fn := range shutdownFuncs {
+			err = utils.JoinErrors(err, fn(ctx))
+		}
+		shutdownFuncs = nil
+		return err
+	}
+
+	// handleErr calls shutdown for cleanup and makes sure that all errors are returned.
+	handleErr := func(inErr error) {
+		err = utils.JoinErrors(inErr, shutdown(ctx))
+	}
+
+	// Set up resource.
+	res, err := newResource(serviceName, serviceVersion)
+	if err != nil {
+		handleErr(err)
+		return
+	}
+
+	// Set up trace provider.
+	tracerProvider, err := newTraceProvider(ctx, res, serviceName)
+	if err != nil {
+		handleErr(err)
+		return
+	}
+	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
+	otel.SetTracerProvider(tracerProvider)
+	prop := newPropagator()
+	otel.SetTextMapPropagator(prop)
+	return
+}
+
+func newResource(serviceName, serviceVersion string) (*resource.Resource, error) {
+	return resource.New(context.Background(),
+		resource.WithAttributes(
+			semconv.ServiceName(serviceName),
+			semconv.ServiceVersion(serviceVersion),
+		), resource.WithOS(), resource.WithHost())
+}
+
+// 跨进程传播使用
+func newPropagator() propagation.TextMapPropagator {
+	return propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{}, //ctx使用
+		propagation.Baggage{},      //参数使用
+	)
+}
+
+func newTraceProvider(ctx context.Context,
+	res *resource.Resource, serviceName string) (
+	*trace.TracerProvider, error) {
+	//otlp导出
+	var traceExporter *otlptrace.Exporter
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	url := "http://127.0.0.1:14268/api/traces"
+	jex, err1 := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
+	if err1 != nil {
+		return nil, err1
+	}
+	tp := trace.NewTracerProvider(
+		// Always be sure to batch in production.
+		trace.WithBatcher(jex),
+		// Record information about this application in an Resource.
+		trace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String("jaeger-"+serviceName),
+			attribute.String("environment", "dev"),
+			attribute.String("ID", "1"),
+		)),
+	)
+}
+
+```
+## Dashboard2ui
+### export&provider启动
+- 经过以上的步骤，我们启动了jaeger、创建了provider的逻辑，2ui的服务需要调用provider逻辑，作为trace导出；
+- 同时，2ui服务需要grpc client调用grpc server，可利用otel的go语言的gin、grpc cronbi实现，完成关联的trace
+接下来贴一下主要的逻辑代码：
+```go
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	config2ui "weiyun/common/config"
+	interceptor "weiyun/common/interceptor"
+	log "weiyun/common/logging"
+	otel "weiyun/common/weiyunotel"
+	weiyunotel "weiyun/common/weiyunotel"
+	service "weiyun/pb"
+	"weiyun/service/dashboard2ui"
+
+	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+func init() {
+	prefix := "./" + config2ui.Server_Name_2UI
+	logPath := prefix + "/" + config2ui.Server_Name_2UI + ".log"
+	os.MkdirAll(prefix, os.ModePerm)
+	log.InitLogger(logPath, "debug", config2ui.Server_Name_2UI)
+}
+// run otel
+func run(ctx context.Context) (
+	otelShutdown func(ctx context.Context) error, err error) {
+	//设置export和provider
+	otelShutdown, err = weiyunotel.SetupOTelSDK(ctx,
+		config2ui.Server_Name_2UI, "1.0")
+	if err != nil {
+		return
+	}
+
+	return
+}
+func main() {
+	ctx := context.TODO()
+	log.Ctx(ctx).Info("init client  go")
+	defer log.Sync()
+	otelShutdown, err := run(ctx, *exporterHttpEndpoint, *exporterGRPCEndpoint)
+	if err != nil {
+		log.Ctx(ctx).Fatal(err)
+	}
+	defer otelShutdown(ctx)
+	otel.SetTracer(config2ui.Server_Name_2UI)
+
+	r := gin.Default()
+	r.Use(otelgin.Middleware(config2ui.Server_Name_2UI), interceptor.TraceLog()) //增加gin中间件
+	//paths router
+	dashboard2ui.SetRouter(r)
+	//rpc client 启动
+	conn, err := grpc.Dial("127.0.0.1:6337",
+		//grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		grpc.WithUnaryInterceptor(interceptor.UnaryClientLogInterceptor),
+	)
+	if err != nil {
+		log.Ctx(ctx).Panicf("连接服务端失败: %s", err)
+		return
+	}
+	defer conn.Close()
+	// 新建一个客户端
+	config2ui.DashBoardClient = service.NewDashBoardServiceClient(conn)
+	r.Run(":9090") //启动gin服务
+	/***quit***/
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	// 阻塞，直到接受到退出信号，才停止进程
+	waitElegantExit(signalChan)
+	log.Ctx(ctx).Info(config2ui.Server_Name_2UI + " Server exit")
+}
+
+// quit
+func waitElegantExit(signalChan chan os.Signal) {
+	for i := range signalChan {
+		switch i {
+		case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT:
+			// 做一些清理操作或者输出相关说明，或者关闭redis等
+			fmt.Println("receive exit signal ", i.String(), ",exit...")
+			os.Exit(0)
+		}
+	}
+}
+```
+说明：
+otelgin.Middleware 作为gin的中间件otel的实现
+grpc.WithStatsHandler(otelgrpc.NewClientHandler()) 作为grpc的拦截器使用，可以实现trace的跨进程传播，当然服务端也需要做相同的的处理，在2api里我们在贴出代码
+gin服务使用otel链路追踪参考：https://cloud.tencent.com/developer/article/2311414
+### span 、trace信息记录
+我们模拟外部http请求直接到2ui的gin服务，外部服务是没有集成otel，所以请求中本身不带有span、trace的信息；因此在gin的拦截器做traceid、spanid的记录（efk日志集成使用了traceid和spandi）,详细的日志集成关注EFK日志集成》，这里简单说明：
+![图片](/assets/imgs/k8s/traceing/2sapntrace.png?w=920&h=574)
+- efk中，通过ctx将traced传下去，每个服务都有自身的spanid，上一个服务的spanid作为下游服务的fatherid
+- 引入trace后，天然带有traceid和spandi，因此可以将trace和log统一起来
+```go
+package interceptor
+
+import (
+	log "weiyun/common/logging"
+	weiyunotel "weiyun/common/weiyunotel"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
+
+	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/metadata"
+)
+
+func TraceLog() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log.Ctx(c).Info("gin 中间件")
+
+	         //从tracecontext进程传递的方式获取
+		ginSpan := trace.SpanFromContext(c.Request.Context())
+		defer ginSpan.End()
+		c.Request.Header.Set("trace_id", ginSpan.SpanContext().TraceID().String())
+		c.Request.Header.Set("span_id", ginSpan.SpanContext().SpanID().String())
+		traceID := c.Request.Header.Get("trace_id") // traceid
+		if len(traceID) == 0 {                      //若没有则补全
+			traceID = uuid.New().String()
+			c.Request.Header.Set("trace_id", traceID)
+		}
+		spanID := c.Request.Header.Get("span_id") // span_id
+		if len(spanID) == 0 {
+			spanID = uuid.New().String()
+			c.Request.Header.Set("span_id", spanID)
+		}
+		pspanID := c.Request.Header.Get("pspan_id") // pspan_id
+		if len(pspanID) == 0 {
+			pspanID = "0"
+			c.Request.Header.Set("pspan_id", pspanID)
+		}
+		//测试baggage
+		bag, _ := baggage.Parse("username=donuts")
+		ctx := baggage.ContextWithBaggage(c.Request.Context(), bag)
+		//
+		//设置gin中的ctx
+		md := metadata.Pairs("trace_id", traceID, "span_id", spanID, "pspan_id", pspanID)
+		//ctx := metadata.NewIncomingContext(c.Request.Context(), md)
+		ctx = metadata.NewIncomingContext(ctx, md)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}
+```
+trace.SpanFromContext 将当前的span继承到，获取traceid和spandi作为本地日志的关联id；
+为什么当前span存在：因为gin的拦截器中已经启动了otel的gin能力
+## Dashboard2api
+作为grpc的server服务，在链路追踪过程，完成ctx的跨进程传播、日志继承的关联能力，接下来通过以下操作实现
+### export&provider启动
+```go
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+
+	"net"
+	"os"
+	"os/signal"
+	"syscall"
+	config2api "weiyun/common/config"
+	"weiyun/common/interceptor"
+	clientgo "weiyun/common/k8s-client-go"
+	log "weiyun/common/logging"
+	"weiyun/common/metricses"
+	weiyunotel "weiyun/common/weiyunotel"
+	dashbord2api "weiyun/service/dashboard2api"
+
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"google.golang.org/grpc"
+)
+
+// 退出信号
+var stopCh = make(chan struct{})
+
+func init() {
+	prefix := "./" + config2api.Server_Name_2API
+	logPath := prefix + "/" + config2api.Server_Name_2API + ".log"
+	os.MkdirAll(prefix, os.ModePerm)
+	log.InitLogger(logPath, "debug", config2api.Server_Name_2API)
+
+}
+
+// run otel
+func run(ctx context.Context) (
+	otelShutdown func(ctx context.Context) error, err error) {
+	//设置export和provider
+	otelShutdown, err = weiyunotel.SetupOTelSDK(ctx,
+		config2api.Server_Name_2API, "1.0")
+	if err != nil {
+		return
+	}
+
+	return
+}
+func main() {
+	//init client-go
+	flag.Parse()
+	ctx := context.TODO()
+	log.Ctx(ctx).Info("init client  go")
+	defer log.Sync()
+	otelShutdown, err := run(ctx)
+	if err != nil {
+		log.Ctx(ctx).Fatal(err)
+	}
+	defer otelShutdown(ctx)
+	weiyunotel.SetTracer(config2api.Server_Name_2API)
+	//读取环境变量设置？
+	_ = clientgo.NewGlinetGO("")
+
+	//create share informer factory
+	clientgo.NewSharedInformerFactory(context.TODO(), stopCh)
+	// metricses初始化
+	if false {
+		metricses.Init()
+		//loop get metircs
+		dashbord2api.LoopCollectMetrices(stopCh, 10)
+	}
+	//other init rpc-server
+	addr := "127.0.0.1:6337"
+	// 1.监听
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Ctx(context.Background()).Panicf("监听异常:%s\n", err)
+	}
+	fmt.Printf("监听端口：%s\n", addr)
+	// 2.实例化gRPC
+	s := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.ChainUnaryInterceptor(
+			//otelgrpc.UnaryServerInterceptor(),
+			interceptor.UnaryLoggerInterceptor,
+		),
+	) //
+	// 3.在gRPC上注册微服务
+	dashbord2api.RegisterService(s)
+	// 4.启动服务端
+	s.Serve(listener)
+
+	/***quit***/
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	// 阻塞，直到接受到退出信号，才停止进程
+	waitElegantExit(signalChan)
+	log.Ctx(context.TODO()).Info(config2api.Log_Prefix_2API + " Server exit")
+}
+
+// quit
+func waitElegantExit(signalChan chan os.Signal) {
+	for i := range signalChan {
+		switch i {
+		case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT:
+			//provier ////tp.Shutdown(ctx);
+			// 做一些清理操作或者输出相关说明，或者关闭redis等
+			fmt.Println("receive exit signal ", i.String(), ",exit...")
+			os.Exit(0)
+		}
+	}
+}
+```
+grpc.ChainUnaryInterceptor(interceptor.UnaryLoggerInterceptor)可以保证rpc服务的跨进程传播，与2ui服务的grpc client拦截器配合使用；
+### server拦截器设置traceid
+因为EFK日志集成时，需要从ctx里解析携带来的trace和span，而引入otel后，无需从ctx里解析，所以server的拦截器做如下调整：
+```go
+span1 := trace.SpanFromContext(ctx) //获取当前的ctx
+defer span1.End()
+bag := baggage.FromContext(ctx)
+fmt.Println(bag.Member("username").Value())
+//采用链路追踪中的trace信息trace
+traceID = mdOld["trace_id"][len(mdOld["trace_id"])-1]
+_, span := weiyunotel.GetSpan(ctx, info.FullMethod)
+defer span.End()
+//采用链路追踪中的span信息
+spanID = span.SpanContext().SpanID().String() //重新生成
+pspanID = mdOld["span_id"][len(mdOld["span_id"])-1]
+```
+## span、trace信息记录
+可参考官方文档：https://opentelemetry.io/docs/instrumentation/go/manual/
+### 创建span
+tracer会创建span，为了创建span，需要一个context.Context实例。该context通常来自于请求对象，或已经存在的父span。Go的context用于保存活动的span，当span启用后，就可以操作创建好的span以及其包含的已修改的上下文
+```go
+func httpHandler(w http.ResponseWriter, r *http.Request) {
+	ctx, span := tracer.Start(r.Context(), "hello-span")
+	defer span.End()
+
+	// do some work to track with hello-span
+}
+```
+### 获取当前span
+获取当前的span
+```go
+// This context needs contain the active span you plan to extract.
+ctx := context.TODO()
+span := trace.SpanFromContext(ctx)
+
+// Do something with the current span, optionally calling `span.End()` if you want it to end
+```
+### 创建嵌套span
+下面将childSpan嵌套在了parentSpan中，表示串行执行
+```go
+func parentFunction(ctx context.Context) {
+	ctx, parentSpan := tracer.Start(ctx, "parent")
+	defer parentSpan.End()
+
+	// call the child function and start a nested span in there
+	childFunction(ctx)
+
+	// do more work - when this function ends, parentSpan will complete.
+}
+
+func childFunction(ctx context.Context) {
+	// Create a span to track `childFunction()` - this is a nested span whose parent is `parentSpan`
+	ctx, childSpan := tracer.Start(ctx, "child")
+	defer childSpan.End()
+
+	// do work here, when this function returns, childSpan will complete.
+}
+```
+### span属性
+属性是一组key/value元数据，用于聚合、过滤以及对traces进行分组
+```go
+// setting attributes at creation...
+ctx, span = tracer.Start(ctx, "attributesAtCreation", trace.WithAttributes(attribute.String("hello", "world")))
+// ... and after creation
+span.SetAttributes(attribute.Bool("isTrue", true), attribute.String("stringAttr", "hi!"))
+```
+或预设置属性，然后再添加到span中
+```go
+var myKey = attribute.Key("myCoolAttribute")
+span.SetAttributes(myKey.String("a value"))
+```
+### 事件
+事件为可读的消息，表示在span的生命周期中"发生了某些事情"
+```go
+span.AddEvent("Acquiring lock")
+mutex.Lock()
+span.AddEvent("Got lock, doing work...")
+// do stuff
+span.AddEvent("Unlocking")
+mutex.Unlock()
+```
+或带有属性的事件
+```go
+span.AddEvent("Cancelled wait due to external signal", trace.WithAttributes(attribute.Int("pid", 4328), attribute.String("signal", "SIGHUP")))
+```
+### 设置span状态
+通常用于表示操作是否有异常。默认状态为Unset，可以手动将其设置为Ok，但通常没必要这么做。
+```go
+import (
+	// ...
+	"go.opentelemetry.io/otel/codes"
+	// ...
+)
+
+// ...
+
+result, err := operationThatCouldFail()
+if err != nil {
+	span.SetStatus(codes.Error, "operationThatCouldFail failed")
+}
+```
+### 记录错误
+用于记录错误日志或调用栈等信息。强烈建议在使用RecordError的同时，通过SetStatus将span状态设置为Error
+```go
+import (
+	// ...
+	"go.opentelemetry.io/otel/codes"
+	// ...
+)
+
+// ...
+
+result, err := operationThatCouldFail()
+if err != nil {
+	span.SetStatus(codes.Error, "operationThatCouldFail failed")
+	span.RecordError(err)
+}
+```
+### 跨进程传播（重点）
+为了跨服务传播Trace context需要注册一个propagator ，通常在创建注册TracerProvider之后执；span的事件和属性并不会跨服务传播
+```go
+func initTracer() (*sdktrace.TracerProvider, error) {
+	// Create stdout exporter to be able to retrieve
+	// the collected spans.
+	exporter, err := stdout.New(stdout.WithPrettyPrint())
+	if err != nil {
+		return nil, err
+	}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithBatcher(exporter),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	return tp, err
+}
+```
+如上注册了两种propagator ：TraceContext和Baggage，因此可以使用这两种数据结构传播上下文。
+官方文档说明：https://opentelemetry.io/docs/reference/specification/context/api-propagators/
+Openletemetry 实现了两种propagator API：
+- TraceContext:  用以传播traceparent和tracestate信息来保证一条trace的调用信息不会因为跨进程而中断
+- Baggage: 用以传播用户自定义信息
+#### TraceContext
+使用TraceContext在下游Inject和上游Extract来打通服务间调用链路
+client
+```go
+import (
+ "net/http"
+ "go.opentelemetry.io/otel"
+ "go.opentelemetry.io/otel/propagation"
+)
+
+func DoRequest(){
+    ...
+    req, err := http.NewRequestWithContext(ctx, method, addr, body)
+    // inject to http.Request by propagator to do distribute tracing
+    otel.GetTextMapPropagator().Inject(req.Context(), propagation.HeaderCarrier(req.Header))
+    http.DefaultClient.Do(req)
+    ...   
+}
+```
+server
+```go
+import (
+ "go.opentelemetry.io/otel/propagation"
+)   
+
+func HandleRequest(){
+    ...
+ // extract from http.Request by propagator to do distribute tracing
+    ctx := cfg.Propagators.Extract(req.Context(), propagation.HeaderCarrier(req.Header))
+    ctx, span := tracer.Start(ctx, spanName, opts...)
+    defer span.End()
+    req = req.WithContext(ctx)
+    ...
+}
+```
+#### Baggage
+clinet
+```go
+bag, _ := baggage.Parse("username=donuts")
+ctx := baggage.ContextWithBaggage(c.Request.Context(), bag)
+```
+server
+```go
+span1 := trace.SpanFromContext(ctx)
+defer span1.End()
+bag := baggage.FromContext(ctx)
+fmt.Println(bag.Member("username").Value())
+```
+# 结果总结
+## 结果
+- 启动client&server
+go run ./xxx-main.go
+- 启动jaeger
+docker启动
+- curl 请求或者浏览器请求
+![图片](/assets/imgs/k8s/traceing/2url请求.png?w=1447&h=664)
+- 查看jager的trace信息
+![图片](/assets/imgs/k8s/traceing/2查看trace.png?w=2078&h=804)
+- 查看调用方法&接口的trace信息
+![图片](/assets/imgs/k8s/traceing/2log信息.png?w=2652&h=840)
+2ui日志查看
+```json
+{
+    "level":"info",
+    "time":"2023-11-04T22:11:37.355+0800",
+    "linenum":"/Users/yuzhiwen/go/weiyun/common/interceptor/client_interceptor.go:60",
+    "msg":"method=/WeiYun.Dashboard2api.DashBoardService/GetNameSpaces,  cost time=11.317154ms",
+    "serviceName":"weiyun-dashboard2ui",
+    "host_ip":"",
+    "pod_ip":"",
+    "trace_id":"eed8a7fd6f59ed00f7636a94551a0f5a",
+    "span_id":"e083e26d18af7b42",
+    "pspan_id":"0"
+}
+```
+trace_id":"eed8a7fd6f59ed00f7636a94551a0f5a" 可以关联otel中的traceid
+span_id:"e083e26d18af7b42" 也关联了otel中的spanid
+2api服务日志查看
+```json
+{
+    "level":"info",
+    "time":"2023-11-04T22:11:37.347+0800",
+    "linenum":"/Users/yuzhiwen/go/weiyun/service/dashboard2api/servcie_grv.go:58",
+    "msg":"2test tracing",
+    "serviceName":"weiyun-dashboard2api",
+    "host_ip":"",
+    "pod_ip":"",
+    "trace_id":"eed8a7fd6f59ed00f7636a94551a0f5a",
+    "span_id":"9761569d90a9ad99",
+    "pspan_id":"e083e26d18af7b42"
+}
+```
+race_id":"eed8a7fd6f59ed00f7636a94551a0f5a" 可以关联otel中的traceid
+pspan_id  e083e26d18af7b42 是上游服务的spanid，也和otel的关联，也由2ui的日志印证
+## 总结
+通过以上的俩篇文章，我们完成了：
+- 简单的服务之间直接trace上报能力
+- 服务之间的调用trace关联
+- 服务内部接口级别的trace关联
+- log和trace的关联
+# TODO
+完成在k8s环境中的collector中转链路追踪
+#
