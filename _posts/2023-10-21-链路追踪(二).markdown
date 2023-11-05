@@ -1,3 +1,11 @@
+---
+title: 第一篇文章
+date: 2023-10-19 09:00:00 +0800
+categories: [opentracing,opentelemetry]
+tags: [链路追踪, 选型]
+author: elon
+mermaid: true
+---
 # 链路追踪(二)
 本章节将用golang的项目做一次直接搜集traces的实践,服务端采用jaeger sdk完成，将traces推送到
 # golang项目介绍

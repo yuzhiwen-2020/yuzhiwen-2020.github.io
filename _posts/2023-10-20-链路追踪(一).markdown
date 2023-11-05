@@ -1,3 +1,11 @@
+---
+title: 第一篇文章
+date: 2023-10-19 09:00:00 +0800
+categories: [jaeger,opentelemetry]
+tags: [链路追踪, 选型]
+author: elon
+mermaid: true
+---
 # 链路追踪(一)
 ![图片](/assets/imgs/k8s/traceing/1三个指标.png?w=10&h=14)
 可观测的三大指标，我们之前调研了log的EFK方案（Fluentd），本次调研实现trace，业界有很多成熟方案可选择，经过对比和考虑未来metric的方案，我们采用opentelemetry+jager的方式实现
