@@ -55,7 +55,7 @@ OpenCensus与OpenTracing为了将两者的优点进行整合，宣布将进行�
 注：https://github.com/open-telemetry/opentelemetry-go是go语言的opentelemetry实现，目前go的metrics到了贝塔版本，log还没有开发完成，不过trace是比较成熟的了
 ![图片](/assets/imgs/k8s/traceing/1三合一.png?w=834&h=542)
 
-![图片](/assets/imgs/k8s/traceing/1opentelemetry比较.pngpng)
+![图片](/assets/imgs/k8s/traceing/1opentelemetry比较.png)
 
 ![图片](/assets/imgs/k8s/traceing/1collector合一.png?w=516&h=536)
 # Opentelemetry
