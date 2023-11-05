@@ -47,6 +47,7 @@ docker run -d --rm --name jaeger \
 ![图片](/assets/imgs/k8s/traceing/2jaeger启动.png?w=1875&h=845)
 ### provider
 jaeger的地址"http://127.0.0.1:14268/api/traces"；项目中创建otel.go文件，作为provider和export的实现；
+
 ```go
 package otel
 
@@ -171,11 +172,13 @@ func newTraceProvider(ctx context.Context,
 }
 
 ```
+
 ## Dashboard2ui
 ### export&provider启动
 - 经过以上的步骤，我们启动了jaeger、创建了provider的逻辑，2ui的服务需要调用provider逻辑，作为trace导出；
 - 同时，2ui服务需要grpc client调用grpc server，可利用otel的go语言的gin、grpc cronbi实现，完成关联的trace
 接下来贴一下主要的逻辑代码：
+
 ```go
 package main
 
@@ -269,6 +272,7 @@ func waitElegantExit(signalChan chan os.Signal) {
 	}
 }
 ```
+
 说明：
 otelgin.Middleware 作为gin的中间件otel的实现
 grpc.WithStatsHandler(otelgrpc.NewClientHandler()) 作为grpc的拦截器使用，可以实现trace的跨进程传播，当然服务端也需要做相同的的处理，在2api里我们在贴出代码
@@ -278,6 +282,7 @@ gin服务使用otel链路追踪参考：https://cloud.tencent.com/developer/arti
 ![图片](/assets/imgs/k8s/traceing/2sapntrace.png?w=920&h=574)
 - efk中，通过ctx将traced传下去，每个服务都有自身的spanid，上一个服务的spanid作为下游服务的fatherid
 - 引入trace后，天然带有traceid和spandi，因此可以将trace和log统一起来
+
 ```go
 package interceptor
 
@@ -331,11 +336,13 @@ func TraceLog() gin.HandlerFunc {
 	}
 }
 ```
+
 trace.SpanFromContext 将当前的span继承到，获取traceid和spandi作为本地日志的关联id；
 为什么当前span存在：因为gin的拦截器中已经启动了otel的gin能力
 ## Dashboard2api
 作为grpc的server服务，在链路追踪过程，完成ctx的跨进程传播、日志继承的关联能力，接下来通过以下操作实现
 ### export&provider启动
+
 ```go
 package main
 
@@ -448,9 +455,11 @@ func waitElegantExit(signalChan chan os.Signal) {
 	}
 }
 ```
+
 grpc.ChainUnaryInterceptor(interceptor.UnaryLoggerInterceptor)可以保证rpc服务的跨进程传播，与2ui服务的grpc client拦截器配合使用；
 ### server拦截器设置traceid
 因为EFK日志集成时，需要从ctx里解析携带来的trace和span，而引入otel后，无需从ctx里解析，所以server的拦截器做如下调整：
+
 ```go
 span1 := trace.SpanFromContext(ctx) //获取当前的ctx
 defer span1.End()
@@ -464,6 +473,7 @@ defer span.End()
 spanID = span.SpanContext().SpanID().String() //重新生成
 pspanID = mdOld["span_id"][len(mdOld["span_id"])-1]
 ```
+
 ## span、trace信息记录
 可参考官方文档：https://opentelemetry.io/docs/instrumentation/go/manual/
 ### 创建span
@@ -478,6 +488,7 @@ func httpHandler(w http.ResponseWriter, r *http.Request) {
 ```
 ### 获取当前span
 获取当前的span
+
 ```go
 // This context needs contain the active span you plan to extract.
 ctx := context.TODO()
@@ -485,8 +496,10 @@ span := trace.SpanFromContext(ctx)
 
 // Do something with the current span, optionally calling `span.End()` if you want it to end
 ```
+
 ### 创建嵌套span
 下面将childSpan嵌套在了parentSpan中，表示串行执行
+
 ```go
 func parentFunction(ctx context.Context) {
 	ctx, parentSpan := tracer.Start(ctx, "parent")
@@ -506,21 +519,26 @@ func childFunction(ctx context.Context) {
 	// do work here, when this function returns, childSpan will complete.
 }
 ```
+
 ### span属性
 属性是一组key/value元数据，用于聚合、过滤以及对traces进行分组
+
 ```go
 // setting attributes at creation...
 ctx, span = tracer.Start(ctx, "attributesAtCreation", trace.WithAttributes(attribute.String("hello", "world")))
 // ... and after creation
 span.SetAttributes(attribute.Bool("isTrue", true), attribute.String("stringAttr", "hi!"))
 ```
+
 或预设置属性，然后再添加到span中
+
 ```go
 var myKey = attribute.Key("myCoolAttribute")
 span.SetAttributes(myKey.String("a value"))
 ```
 ### 事件
 事件为可读的消息，表示在span的生命周期中"发生了某些事情"
+
 ```go
 span.AddEvent("Acquiring lock")
 mutex.Lock()
@@ -529,7 +547,9 @@ span.AddEvent("Got lock, doing work...")
 span.AddEvent("Unlocking")
 mutex.Unlock()
 ```
+
 或带有属性的事件
+
 ```go
 span.AddEvent("Cancelled wait due to external signal", trace.WithAttributes(attribute.Int("pid", 4328), attribute.String("signal", "SIGHUP")))
 ```

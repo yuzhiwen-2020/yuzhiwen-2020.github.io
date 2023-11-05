@@ -19,11 +19,7 @@ mermaid: true
 ![图片](/assets/imgs/k8s/traceing/1为什么链路追踪.png?w=973&h=285)
 # 业界的方案
 ## 百花齐放
-| |主要支持语言|实现方式|接入方式|数据存储|颗粒度|
-|-|-|-|-|-|-|
-|Zipkin|java、go、php等|拦截后发送http、mq|基于linked，引入配置|es、mysql、内存等|接口级|
-|Jaeger|java、go、php等|拦截请求|拦截、侵入|es、kafka、内存等|接口级|
-|Skywalking|java、go、nodejs等|java探针、字节码|字节码，无侵入|es、h2等|服务方法级|
+![图片](/assets/imgs/k8s/traceing/1百花齐放.png)
 
 注：以上的都支持OpenTracing
 在调研的过程发现，由于云原生、微服务的发展，逐渐出现通用规范的OpenTracing、和google指定的OpenSensus
@@ -45,10 +41,7 @@ OpenCensus是Google开源的，作为最早提出Tracing概念的公司，OpenCe
 ### 总结
 ### 总结
 可以很容易分辨出OpenTracing和OpenCensus的差别，主要在于OpenCensus把Metrics包括进来了，不仅可以采集traces，还支持采集metrics，还有一点不同OpenCensus并不是单纯的规范制定，他还把包括数据采集的Agent、Collector
-| |trace|metric|log|实现|支持的项目|
-|-|-|-|-|-|-|
-|OpenTracing|✅|❎|❎|只是定义规范|jaeger、skywalking等|
-|OpenCensus|✅|✅|❎|不仅有规范，还有agent、collector实现|自身的多语言实现|
+![图片](/assets/imgs/k8s/traceing/1open比较.png)
 
 # 我们需要的
 ## 思考
@@ -61,12 +54,8 @@ OpenCensus是Google开源的，作为最早提出Tracing概念的公司，OpenCe
 OpenCensus与OpenTracing为了将两者的优点进行整合，宣布将进行合并，两者的合并就是后来赫赫有名：OpenTelemetry ；OpenTelemetry与厂商、平台无关，不提供与可观测性相关的后端服务。可根据用户需求将可观测类数据导出到存储、查询、可视化等不同后端，如 Prometheus、Jaeger 、云厂商服务中。该项目得到了云提供商、厂商和最终用户的广泛行业支持和采用；
 注：https://github.com/open-telemetry/opentelemetry-go是go语言的opentelemetry实现，目前go的metrics到了贝塔版本，log还没有开发完成，不过trace是比较成熟的了
 ![图片](/assets/imgs/k8s/traceing/1三合一.png?w=834&h=542)
-|标准|概述|traces| metrics|logs|状态|
-|-|-|-|-|-|-|
-|OpenTracing|CNCF项目-2015年|✅| | |停止更新|
-|OpenCensus|起源Google-2017年|✅|✅| |停止更新|
-|OpenMetrics|起源Prometheus社区-2017年| |✅| |持续更新|
-|OpenTelemetry|OpenTracing、OpenCensus合并-2019年|✅|✅|✅|蓬勃发展|
+
+![图片](/assets/imgs/k8s/traceing/1opentelemetry比较.pngpng)
 
 ![图片](/assets/imgs/k8s/traceing/1collector合一.png?w=516&h=536)
 # Opentelemetry
