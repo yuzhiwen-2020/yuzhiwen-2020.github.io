@@ -39,7 +39,7 @@ OpenCensus是Google开源的，作为最早提出Tracing概念的公司，OpenCe
 ![图片](/assets/imgs/k8s/traceing/1三合一collector.png?w=898&h=685)
 
 注：以上俩种架构也是我们后续介绍的opentelemetry所借鉴的架构，可见聪明人的想法是相同的😄
-### 总结
+
 ### 总结
 可以很容易分辨出OpenTracing和OpenCensus的差别，主要在于OpenCensus把Metrics包括进来了，不仅可以采集traces，还支持采集metrics，还有一点不同OpenCensus并不是单纯的规范制定，他还把包括数据采集的Agent、Collector
 
@@ -51,7 +51,8 @@ OpenCensus是Google开源的，作为最早提出Tracing概念的公司，OpenCe
 - 后续我们要考虑metrics的验证工作--openMetrics，这就需要三个不同的系统架构来完成可观测；是否有一种架构可以把三大指标（log、trace、metrics）都统一呢？
 - 如果可观测引入三套系统，在稳定、可维护性都带来工作量，是否有统一的架构呢？
 - 是否有在跨语言架构上优秀的生态？
-- 如果绑定到某个解决方案的厂家，不利于后续的扩展、维护、调整、优化，因此有没有与厂家无关的解决方案？
+- 如果绑定到某个解决方案的厂家，不利于后续的扩展、维护、调整、优化，因此有没有与厂家无关的解决方案?
+
 ## 主角出现：
 OpenCensus与OpenTracing为了将两者的优点进行整合，宣布将进行合并，两者的合并就是后来赫赫有名：OpenTelemetry ；OpenTelemetry与厂商、平台无关，不提供与可观测性相关的后端服务。可根据用户需求将可观测类数据导出到存储、查询、可视化等不同后端，如 Prometheus、Jaeger 、云厂商服务中。该项目得到了云提供商、厂商和最终用户的广泛行业支持和采用；
 注：https://github.com/open-telemetry/opentelemetry-go是go语言的opentelemetry实现，目前go的metrics到了贝塔版本，log还没有开发完成，不过trace是比较成熟的了

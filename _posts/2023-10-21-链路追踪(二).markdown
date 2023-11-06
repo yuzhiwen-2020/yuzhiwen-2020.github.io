@@ -666,7 +666,7 @@ bag := baggage.FromContext(ctx)
 fmt.Println(bag.Member("username").Value())
 ```
 
-# 结果总结
+# 结果&总结
 ## 结果
 - 启动client&server
 go run ./xxx-main.go
