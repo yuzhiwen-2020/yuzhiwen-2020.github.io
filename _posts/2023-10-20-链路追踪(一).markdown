@@ -19,6 +19,7 @@ mermaid: true
 ![图片](/assets/imgs/k8s/traceing/1为什么链路追踪.png?w=973&h=285)
 # 业界的方案
 ## 百花齐放
+
 ![图片](/assets/imgs/k8s/traceing/1百花齐放.png)
 
 注：以上的都支持OpenTracing
@@ -41,6 +42,7 @@ OpenCensus是Google开源的，作为最早提出Tracing概念的公司，OpenCe
 ### 总结
 ### 总结
 可以很容易分辨出OpenTracing和OpenCensus的差别，主要在于OpenCensus把Metrics包括进来了，不仅可以采集traces，还支持采集metrics，还有一点不同OpenCensus并不是单纯的规范制定，他还把包括数据采集的Agent、Collector
+
 ![图片](/assets/imgs/k8s/traceing/1open比较.png)
 
 # 我们需要的
