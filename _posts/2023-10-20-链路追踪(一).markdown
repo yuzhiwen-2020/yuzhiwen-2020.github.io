@@ -1,6 +1,6 @@
 ---
 title: 链路追踪
-date: 2023-10-19 09:00:00 +0800
+date: 2023-09-20 09:00:00 +0800
 categories: [jaeger,opentelemetry]
 tags: [链路追踪, 选型]
 author: elon
@@ -159,10 +159,12 @@ eceivers:
             - Example-Header
           max_age: 7200
 ```
+
 - Processors
 Processors运行在数据的接收和导出之间。虽然Processors是可选的，但有时候会建议使用Processors。
 一般选择批量处理和内存控制的逻辑模块
 https://github.com/open-telemetry/opentelemetry-collector/tree/main/processor
+
 ```yaml
 processors:
   batch:
@@ -170,9 +172,11 @@ processors:
     send_batch_size: 10000
     timeout: 10s
 ```
+
 - Exporters
 exporter指定了如何将数据发往一个或多个后端/目标。必须配置一个或多个exporter，默认不会配置任何exporter。
 https://github.com/open-telemetry/opentelemetry-collector/tree/main/exporter
+
 ```yaml
 exporters:
   otlp:
@@ -185,16 +189,20 @@ exporters:
     tls:
       insecure: true
 ```
+
 - Services
 Service部分用于配置OpenTelemetry Collector根据receivers, processors, exporters, 和extensions sections的配置会启用那些特性。service分为两部分：
 extensions
 extensions包含启用的扩展，
+
 ```yaml
 service:
       extensions: [health_check, pprof, zpages]
 ```
+
 pipelines
 一个pipeline是一组 receivers, processors, 和exporters的集合。必须在service之外定义每个receiver/processor/exporter的配置，然后将其包含到pipeline中
+
 ```yaml
 receivers:
   otlp:
@@ -211,6 +219,7 @@ service:
       processors: [  ]
       exporters:  [ otlp ]
 ```
+
 #### 使用
 参考官方的例子：
 https://github.com/open-telemetry/opentelemetry-go/tree/main/example/otel-collector

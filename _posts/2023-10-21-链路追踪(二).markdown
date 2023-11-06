@@ -1,6 +1,6 @@
 ---
 title: 链路追踪
-date: 2023-10-19 09:00:00 +0800
+date: 2023-09-19 09:00:00 +0800
 categories: [opentracing,opentelemetry]
 tags: [链路追踪, 选型]
 author: elon
