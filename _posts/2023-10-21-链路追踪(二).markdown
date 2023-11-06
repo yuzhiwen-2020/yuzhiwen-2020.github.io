@@ -613,6 +613,7 @@ Openletemetry 实现了两种propagator API：
 #### TraceContext
 使用TraceContext在下游Inject和上游Extract来打通服务间调用链路
 client
+
 ```go
 import (
  "net/http"
@@ -629,7 +630,9 @@ func DoRequest(){
     ...   
 }
 ```
+
 server
+
 ```go
 import (
  "go.opentelemetry.io/otel/propagation"
@@ -645,19 +648,24 @@ func HandleRequest(){
     ...
 }
 ```
+
 #### Baggage
 clinet
+
 ```go
 bag, _ := baggage.Parse("username=donuts")
 ctx := baggage.ContextWithBaggage(c.Request.Context(), bag)
 ```
+
 server
+
 ```go
 span1 := trace.SpanFromContext(ctx)
 defer span1.End()
 bag := baggage.FromContext(ctx)
 fmt.Println(bag.Member("username").Value())
 ```
+
 # 结果总结
 ## 结果
 - 启动client&server
@@ -671,6 +679,7 @@ docker启动
 - 查看调用方法&接口的trace信息
 ![图片](/assets/imgs/k8s/traceing/2log信息.png?w=2652&h=840)
 2ui日志查看
+
 ```json
 {
     "level":"info",
@@ -685,9 +694,11 @@ docker启动
     "pspan_id":"0"
 }
 ```
+
 trace_id":"eed8a7fd6f59ed00f7636a94551a0f5a" 可以关联otel中的traceid
 span_id:"e083e26d18af7b42" 也关联了otel中的spanid
 2api服务日志查看
+
 ```json
 {
     "level":"info",
@@ -702,6 +713,7 @@ span_id:"e083e26d18af7b42" 也关联了otel中的spanid
     "pspan_id":"e083e26d18af7b42"
 }
 ```
+
 race_id":"eed8a7fd6f59ed00f7636a94551a0f5a" 可以关联otel中的traceid
 pspan_id  e083e26d18af7b42 是上游服务的spanid，也和otel的关联，也由2ui的日志印证
 ## 总结

@@ -71,6 +71,7 @@ OpenCensus与OpenTracing为了将两者的优点进行整合，宣布将进行�
 Otel : 就是otelemetry
 Otlp : 导出遥测数据的协议
 Otel Collector :搜集otel的sdk或者api发送的数据，在转发到指定目标端
+
 ```lua
                                           -----> Jaeger (trace)
 App + SDK ---> OpenTelemtry Collector ---|
